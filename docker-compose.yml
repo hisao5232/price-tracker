@@ -1,0 +1,65 @@
+services:
+  tracker-backend:
+    build: ./backend
+    container_name: tracker-backend
+    restart: always
+    env_file: .env
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@tracker-db:5432/${DB_NAME}
+    depends_on:
+      tracker-db:
+        condition: service_healthy
+    networks:
+      - traefik-public
+      - tracker-internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tracker-api.rule=Host(`api-tracker.go-pro-world.net`)"
+      - "traefik.http.routers.tracker-api.entrypoints=websecure"
+      - "traefik.http.routers.tracker-api.tls=true"
+      - "traefik.http.routers.tracker-api.tls.certresolver=lets-encrypt"
+      - "traefik.http.services.tracker-api.loadbalancer.server.port=8000"
+      - "traefik.docker.network=traefik-public"
+
+  tracker-db:
+    image: postgres:16-alpine
+    container_name: tracker-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - tracker_postgres_data:/var/lib/postgresql/data
+    networks:
+      - tracker-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    container_name: tracker-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - NEXT_PUBLIC_API_KEY=${NEXT_PUBLIC_API_KEY}
+    depends_on:
+      - tracker-backend
+
+networks:
+  traefik-public:
+    external: true
+  tracker-internal:
+    driver: bridge
+
+volumes:
+  tracker_postgres_data:

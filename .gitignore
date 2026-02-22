@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Next.js
+node_modules/
+.next/
+out/
+build/
+
+# Debug/Playwright logs
+*.png
+*.log
+.auth/
+
+# Docker
+.docker
