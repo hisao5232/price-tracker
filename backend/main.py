@@ -72,9 +72,31 @@ async def track_product(url: str, db: AsyncSession = Depends(get_db)):
     return {"message": "Success", "product": result}
 
 # 追跡リストを取得するエンドポイント
-@app.get("/products", response_model=List[Product])
+@app.get("/products")
 async def get_products(db: AsyncSession = Depends(get_db)):
+    # 1. 商品一覧を取得
     statement = select(Product).order_by(desc(Product.created_at))
     results = await db.execute(statement)
-    products = results.scalars().all()
-    return products
+    products_db = results.scalars().all()
+    
+    response_data = []
+    
+    for p in products_db:
+        # 2. 各商品の最新価格を個別に取得
+        history_stmt = (
+            select(PriceHistory)
+            .where(PriceHistory.product_id == p.id)
+            .order_by(desc(PriceHistory.scraped_at))
+            .limit(1)
+        )
+        h_result = await db.execute(history_stmt)
+        latest_history = h_result.scalar_one_or_none()
+        
+        # 3. Product オブジェクトを辞書に変換し、価格を付け足す
+        # p.model_dump() で Pydantic の制約を外したプレーンな辞書になります
+        product_data = p.model_dump() 
+        product_data["current_price"] = latest_history.price if latest_history else None
+        
+        response_data.append(product_data)
+            
+    return response_data
