@@ -1,29 +1,24 @@
-# backend/models.py
-from sqlalchemy import ForeignKey, BigInteger, String, DateTime
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from database import Base
+from typing import List, Optional
+from sqlmodel import SQLModel, Field, Relationship
 
-class Product(Base):
+class Product(SQLModel, table=True):
     __tablename__ = "products"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    item_id: str = Field(index=True, unique=True)
+    name: str
+    url: str
+    image_url: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
     
-    id: Mapped[int] = mapped_column(primary_key=True)
-    item_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-    name: Mapped[str] = mapped_column(String)
-    url: Mapped[str] = mapped_column(String)
-    image_url: Mapped[str] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.now)
-    
-    # 履歴とのリレーション
-    histories: Mapped[list["PriceHistory"]] = relationship(back_populates="product")
+    histories: List["PriceHistory"] = Relationship(back_populates="product")
 
-class PriceHistory(Base):
+class PriceHistory(SQLModel, table=True):
     __tablename__ = "price_histories"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    price: int
+    scraped_at: datetime = Field(default_factory=datetime.now)
     
-    id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    price: Mapped[int] = mapped_column(BigInteger)
-    scraped_at: Mapped[datetime] = mapped_column(default=datetime.now)
-    
-    product: Mapped["Product"] = relationship(back_populates="histories")
-    
+    product_id: int = Field(foreign_key="products.id")
+    product: Product = Relationship(back_populates="histories")
+

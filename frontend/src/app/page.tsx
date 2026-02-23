@@ -1,65 +1,119 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect } from "react";
+
+interface Product {
+  id: number;
+  item_id: string;
+  name: string;
+  url: string;
+  image_url: string;
+}
 
 export default function Home() {
+  const [url, setUrl] = useState("");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 初回読み込み時に追跡リストを取得
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products`);
+      if (res.ok) {
+        const data = await res.json();
+        setProducts(data);
+      }
+    } catch (err) {
+      console.error("リストの取得に失敗しました", err);
+    }
+  };
+
+  const handleTrack = async () => {
+    if (!url) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/track?url=${encodeURIComponent(url)}`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        setUrl(""); // 入力欄をクリア
+        await fetchProducts(); // リストを更新
+      } else {
+        alert("追跡に失敗しました。URLを確認してください。");
+      }
+    } catch (err) {
+      console.error("エラーが発生しました", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="min-h-screen bg-gray-50 p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <header className="text-center">
+          <h1 className="text-4xl font-bold text-blue-600 tracking-tight">Price Tracker</h1>
+          <p className="text-gray-500 mt-2">商品のURLを入力して価格追跡を開始します</p>
+        </header>
+
+        {/* 追跡URL入力セクション */}
+        <div className="flex flex-col sm:flex-row gap-3 p-3 bg-white rounded-2xl shadow-sm border border-gray-200">
+          <input
+            type="text"
+            className="flex-1 px-4 py-3 outline-none bg-transparent"
+            placeholder="商品のURLを貼り付け (https://jp.mercari.com/item/...)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <button 
+            onClick={handleTrack}
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white px-8 py-3 rounded-xl transition-all font-semibold whitespace-nowrap"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {loading ? "スクレイピング中..." : "追跡を開始"}
+          </button>
         </div>
-      </main>
-    </div>
+
+        {/* 追跡リスト表示セクション */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <span className="w-2 h-6 bg-blue-600 rounded-full"></span>
+            追跡中のリスト
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {products.length === 0 ? (
+              <p className="text-gray-400 py-10 text-center col-span-full">追跡中の商品はまだありません。</p>
+            ) : (
+              products.map((product) => (
+                <div key={product.id} className="flex gap-4 p-4 bg-white rounded-xl shadow-sm border border-gray-100 hover:border-blue-200 transition-colors">
+                  <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                    {product.image_url ? (
+                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">No Image</div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 truncate">{product.name}</h3>
+                    <p className="text-xs text-gray-400 mt-1 uppercase tracking-wider">ID: {product.item_id}</p>
+                    <a 
+                      href={product.url} 
+                      target="_blank" 
+                      className="inline-block mt-2 text-sm text-blue-500 hover:underline"
+                    >
+                      商品ページを見る ↗
+                    </a>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }

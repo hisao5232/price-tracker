@@ -1,49 +1,80 @@
-import os
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from sqlmodel import SQLModel, create_engine, Session, select
-from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select, desc, SQLModel
 from datetime import datetime
+from typing import List
 
-# 自作のスクレイパーをインポート
-# scraper.py に提示されたスクレイピングコードがある前提
-from scraper import scrape_site, search_items
+from database import get_db, engine, Base
+from models import Product, PriceHistory
+from scraper import scrape_site
 
-app = FastAPI(title="Price Tracker API")
+app = FastAPI()
 
-# DB設定 (docker-compose.ymlの環境変数を使用)
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@tracker-db:5432/db")
-# SQLModel用 (asyncpgを使う場合は少し工夫が必要ですが、まずは導通確認用に同期的な書き方も併記)
-# 実際には engine_async を作りますが、起動確認用にシンプルにします
+# CORSの設定を追加
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 開発中は一旦すべて許可。本番はURLを指定
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# 起動時にテーブルを作成（簡易的なマイグレーション）
 @app.on_event("startup")
 async def on_startup():
-    # ここでテーブル作成などの初期化処理を行う
-    print("API starting up...")
-
-@app.get("/")
-def read_root():
-    return {"status": "ok", "message": "Price Tracker API is running"}
-
-@app.get("/search")
-async def search(keyword: str):
-    """キーワードで商品を検索する"""
-    results = await search_items(keyword)
-    if not results:
-        raise HTTPException(status_code=404, detail="No items found")
-    return {"keyword": keyword, "count": len(results), "items": results}
+    async with engine.begin() as conn:
+        # SQLModelのメタデータを使用してテーブルを作成
+        await conn.run_sync(SQLModel.metadata.create_all)
 
 @app.post("/track")
-async def track_url(url: str):
-    """特定のURLの商品情報を取得する"""
+async def track_product(url: str, db: AsyncSession = Depends(get_db)):
+    # 1. スクレイピング実行
     result = await scrape_site(url)
     if result["status"] == "error":
         raise HTTPException(status_code=400, detail=result["message"])
-    
-    # 本来はここでDBに保存処理を入れる
-    return result
 
-# サーバー起動用 (ローカルテスト時)
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # item_id を URL から抽出（またはスクレイパー側で取得した物を使用）
+    # ここでは簡易的にURLをID代わりに使うか、スクレイパーの結果に含める
+    item_id = url.split('/')[-1] 
+
+    # 2. 商品の存在確認
+    statement = select(Product).where(Product.item_id == item_id)
+    db_result = await db.execute(statement)
+    product = db_result.scalar_one_or_none()
+
+    if not product:
+        # 新規登録
+        product = Product(
+            item_id=item_id,
+            name=result["name"],
+            url=url,
+            image_url=result["image_url"]
+        )
+        db.add(product)
+        await db.flush() # IDを確定させる
+    else:
+        # 既存更新
+        product.name = result["name"]
+        product.image_url = result["image_url"]
+
+    # 3. 価格履歴の保存
+    new_history = PriceHistory(
+        product_id=product.id,
+        price=result["price"],
+        scraped_at=datetime.now()
+    )
+    db.add(new_history)
     
+    await db.commit()
+    await db.refresh(product)
+    
+    return {"message": "Success", "product": result}
+
+# 追跡リストを取得するエンドポイント
+@app.get("/products", response_model=List[Product])
+async def get_products(db: AsyncSession = Depends(get_db)):
+    statement = select(Product).order_by(desc(Product.created_at))
+    results = await db.execute(statement)
+    products = results.scalars().all()
+    return products
