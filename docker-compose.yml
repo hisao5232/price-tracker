@@ -7,6 +7,7 @@ services:
     ports:
       - "8002:8000"
     environment:
+      - TZ=Asia/Tokyo
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@tracker-db:5432/${DB_NAME}
     depends_on:
       tracker-db:
@@ -28,9 +29,10 @@ services:
     container_name: tracker-db
     restart: always
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      - TZ=Asia/Tokyo
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
     volumes:
       - tracker_postgres_data:/var/lib/postgresql/data
     networks:

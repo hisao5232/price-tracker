@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface Product {
   id: number;
@@ -7,13 +8,22 @@ interface Product {
   name: string;
   url: string;
   image_url: string;
-  current_price?: number; // 最新価格を表示するためのフィールド
+  current_price?: number;
+}
+
+interface PricePoint {
+  date: string;
+  price: number;
 }
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // グラフモーダル用の状態
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [history, setHistory] = useState<PricePoint[]>([]);
 
   useEffect(() => {
     fetchProducts();
@@ -35,7 +45,6 @@ export default function Home() {
     if (!url) return;
     setLoading(true);
     
-    // URLクレンジング（ゴミを除去）
     const urlMatch = url.match(/https:\/\/jp\.mercari\.com\/item\/m\d+/);
     const cleanUrl = urlMatch ? urlMatch[0] : url;
 
@@ -54,6 +63,24 @@ export default function Home() {
     }
   };
 
+  // 履歴取得とモーダル表示
+  const openHistory = async (product: Product) => {
+    setSelectedProduct(product);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/${product.id}/history`);
+      if (res.ok) {
+        const data = await res.json();
+        const formattedData = data.map((d: any) => ({
+          price: d.price,
+          date: new Date(d.scraped_at).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit' })
+        }));
+        setHistory(formattedData);
+      }
+    } catch (err) {
+      console.error("History fetch error:", err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans">
       {/* ヘッダー */}
@@ -61,13 +88,11 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">P</div>
-            <span className="text-xl font-extrabold tracking-tight text-slate-800">
-              tracker <span className="text-indigo-600">search</span>
-            </span>
+            <span className="text-xl font-extrabold tracking-tight text-slate-800">Price Tracker</span>
           </div>
-          <nav className="hidden md:flex gap-6 text-sm font-medium text-slate-500">
-            <a href="#" className="hover:text-indigo-600 transition-colors">Dashboard</a>
-            <a href="https://github.com/hisao5232" target="_blank" className="hover:text-indigo-600 transition-colors">GitHub</a>
+          <nav className="flex gap-6 text-sm font-bold">
+            <button className="text-indigo-600 border-b-2 border-indigo-600 pb-1">tracker</button>
+            <button className="text-slate-500 hover:text-indigo-600 pb-1 transition-colors">search</button>
           </nav>
         </div>
       </header>
@@ -75,15 +100,11 @@ export default function Home() {
       <main className="flex-grow max-w-5xl mx-auto w-full px-6 py-12">
         {/* メイン入力セクション */}
         <section className="text-center mb-16">
-          <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tight">
-            スマートに価格を追跡。
-          </h2>
-          <p className="text-slate-500 mb-10 max-w-lg mx-auto">
-            メルカリのURLを貼り付けるだけで、価格の変動を自動で記録します。
-          </p>
+          <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tight">スマートに価格を追跡。</h2>
+          <p className="text-slate-500 mb-10 max-w-lg mx-auto">メルカリのURLを貼り付けるだけで、価格の変動を自動で記録します。</p>
 
           <div className="relative max-w-2xl mx-auto group">
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-2xl blur opacity-25"></div>
             <div className="relative flex flex-col md:flex-row gap-3 p-2 bg-white rounded-2xl shadow-xl border border-slate-200">
               <input
                 type="text"
@@ -95,11 +116,8 @@ export default function Home() {
               <button 
                 onClick={handleTrack}
                 disabled={loading}
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white px-10 py-4 rounded-xl transition-all font-bold shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2"
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white px-10 py-4 rounded-xl transition-all font-bold"
               >
-                {loading ? (
-                  <span className="inline-block animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                ) : null}
                 {loading ? "解析中..." : "追跡を開始"}
               </button>
             </div>
@@ -108,69 +126,80 @@ export default function Home() {
 
         {/* リストセクション */}
         <section className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-              追跡中のアイテム
-              <span className="bg-slate-200 text-slate-600 text-xs py-1 px-2.5 rounded-full font-bold">
-                {products.length}
-              </span>
-            </h3>
-          </div>
+          <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
+            追跡中のアイテム
+            <span className="bg-slate-200 text-slate-600 text-xs py-1 px-2.5 rounded-full font-bold">{products.length}</span>
+          </h3>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {products.length === 0 ? (
-              <div className="col-span-full py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400">
-                <p className="text-lg">まだ追跡している商品がありません</p>
-              </div>
-            ) : (
-              products.map((product) => (
-                <div key={product.id} className="group bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
-                  <div className="aspect-square bg-slate-100 relative overflow-hidden">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-300 italic">No Image</div>
-                    )}
-                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full shadow-sm">
-                      <p className="text-sm font-black text-indigo-600">
-                        {/* 仮に値段が未取得の場合は"---"を表示 */}
-                        ¥ {product.current_price?.toLocaleString() || "価格取得中"}
-                      </p>
-                    </div>
+            {products.map((product) => (
+              <div key={product.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col">
+                <div className="aspect-square bg-slate-100 relative overflow-hidden">
+                  <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                  <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full shadow-sm">
+                    <p className="text-sm font-black text-indigo-600">¥ {product.current_price?.toLocaleString() || "---"}</p>
                   </div>
-                  <div className="p-5">
-                    <h4 className="font-bold text-slate-900 leading-tight mb-2 line-clamp-2 min-h-[3rem]">
-                      {product.name}
-                    </h4>
-                    <div className="flex items-center justify-between mt-4">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {product.item_id}</span>
-                      <a 
-                        href={product.url} 
-                        target="_blank" 
-                        className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1"
-                      >
-                        VIEW ITEM
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                      </a>
+                </div>
+                <div className="p-5 flex flex-col flex-grow">
+                  <h4 className="font-bold text-slate-900 leading-tight mb-4 line-clamp-2 h-12">{product.name}</h4>
+                  <div className="mt-auto space-y-3">
+                    <button 
+                      onClick={() => openHistory(product)}
+                      className="w-full py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-sm font-bold transition-colors"
+                    >
+                      価格推移を見る
+                    </button>
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
+                      <span>ID: {product.item_id}</span>
+                      <a href={product.url} target="_blank" className="hover:text-indigo-600 flex items-center gap-1">ORIGINAL LINK</a>
                     </div>
                   </div>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </section>
       </main>
 
+      {/* グラフモーダル */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-800 truncate pr-8">{selectedProduct.name}</h3>
+              <button onClick={() => setSelectedProduct(null)} className="text-slate-400 hover:text-slate-600 text-2xl transition-colors">×</button>
+            </div>
+            <div className="p-8 h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={history}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `¥${v.toLocaleString()}`} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                    // (val: number | undefined) とすることで、undefinedの可能性を許容します
+                    formatter={(val: number | string | undefined) => {
+                      if (val === undefined || val === null) return ["---", "価格"];
+                      return [`¥${Number(val).toLocaleString()}`, "価格"];
+                    }}
+                  />
+                  <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4, fill: '#4f46e5' }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="p-6 bg-slate-50 text-center">
+              <p className="text-xs text-slate-500 font-medium">取得データ数: {history.length} 件</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* フッター */}
-      <footer className="bg-white border-t border-slate-200 py-10">
-        <div className="max-w-5xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-slate-400 text-sm font-medium">
-            Go-into-PG-world since 2025
-          </p>
-          <div className="flex gap-8 text-slate-400 text-sm">
-            <span className="hover:text-indigo-600 cursor-default">Python / FastAPI</span>
-            <span className="hover:text-indigo-600 cursor-default">Next.js / Tailwind v4</span>
-            <span className="hover:text-indigo-600 cursor-default">PostgreSQL</span>
+      <footer className="bg-white border-t border-slate-200 py-10 mt-12">
+        <div className="max-w-5xl mx-auto px-6 text-center">
+          <p className="text-slate-400 text-sm font-medium mb-2">Go-into-PG-world since 2025</p>
+          <div className="flex justify-center gap-6 text-[11px] font-bold text-slate-300 uppercase tracking-widest">
+            <span>Python</span><span>Next.js</span><span>PostgreSQL</span>
           </div>
         </div>
       </footer>
