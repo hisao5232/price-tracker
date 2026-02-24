@@ -4,7 +4,7 @@ import asyncio
 import urllib.parse
 from playwright.async_api import async_playwright
 
-# 環境変数からベースURLを取得（設定されていなければデフォルトを使用）
+# 環境変数からベースURLを取得
 BASE_SEARCH_URL = os.getenv("SEARCH_URL")
 
 # 個別商品ページ用
@@ -20,6 +20,23 @@ async def scrape_site(url: str):
             await page.goto(url, wait_until="domcontentloaded")
             await page.wait_for_timeout(2000)
             
+            # --- 修正版：売り切れ判定（誤検知対策） ---
+            is_sold_out = False
+            
+            # 1. メタタグをチェック (システム側のステータスなので確実性が高い)
+            availability = await page.get_attribute('meta[property="og:availability"]', "content")
+            if availability in ["oos", "soldout", "out of stock"]:
+                is_sold_out = True
+            
+            # 2. メタタグで判定できない場合、メインの購入ボタンエリアを確認
+            if not is_sold_out:
+                # 下部のおすすめ商品の「売り切れ」を拾わないよう、
+                # 購入ボタンが含まれるコンテナ (checkout-button-container) の中だけを探す
+                sold_out_badge = await page.query_selector('div[data-testid="checkout-button-container"] >> text="売り切れ"')
+                if sold_out_badge:
+                    is_sold_out = True
+            # --- 修正ここまで ---
+
             scripts = await page.locator('script[type="application/ld+json"]').all_inner_texts()
             name, price, image_url = None, None, None
             for s in scripts:
@@ -44,7 +61,14 @@ async def scrape_site(url: str):
             if not image_url: image_url = await page.get_attribute('meta[property="og:image"]', "content")
 
             if name and price:
-                return {"status": "success", "name": name, "price": int(price), "image_url": image_url}
+                return {
+                    "status": "success", 
+                    "name": name, 
+                    "price": int(price), 
+                    "image_url": image_url,
+                    "sold_out": is_sold_out
+                }
+            
             return {"status": "error", "message": "Could not find name or price"}
         except Exception as e:
             return {"status": "error", "message": str(e)}

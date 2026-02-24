@@ -132,17 +132,32 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
     products = results.scalars().all()
     
     updated_count = 0
+    deleted_count = 0
+    
     for p in products:
+        # 1. 最新の状態をスクレイピング
+        result = await scrape_site(p.url)
+        
+        # 2. 商品が削除されている、または売り切れの場合の処理
+        # スクレイパー側で status: "sold_out" やエラーを返す想定
+        if result["status"] == "error" or result.get("sold_out") is True:
+            # Discordに完売/削除通知を飛ばす
+            content = f"🚫 **追跡終了（完売または削除）**\n商品: {p.name}\nURL: {p.url}"
+            if DISCORD_WEBHOOK_URL:
+                async with httpx.AsyncClient() as client:
+                    await client.post(DISCORD_WEBHOOK_URL, json={"content": content})
+            
+            # データベースから削除
+            await db.delete(p)
+            deleted_count += 1
+            continue
+
+        # 3. 通常の価格チェック（既存のロジック）
+        new_price = result["price"]
         history_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(text("scraped_at DESC")).limit(1)
         h_result = await db.execute(history_stmt)
         latest_history = h_result.scalar_one_or_none()
         old_price = latest_history.price if latest_history else None
-
-        result = await scrape_site(p.url)
-        if result["status"] == "error":
-            continue
-            
-        new_price = result["price"]
         
         if old_price is None or new_price != old_price:
             new_history = PriceHistory(
@@ -158,5 +173,6 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
             updated_count += 1
             
     await db.commit()
-    return {"message": f"{updated_count}件の商品を更新しました"}
-    
+    return {
+        "message": f"{updated_count}件を更新、{deleted_count}件を削除しました"
+    }
