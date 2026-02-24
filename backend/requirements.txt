@@ -5,3 +5,4 @@ asyncpg
 playwright
 pytest-playwright
 python-dotenv
+httpx
