@@ -85,17 +85,30 @@ export default function Home() {
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans">
       {/* ヘッダー */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">P</div>
-            <span className="text-xl font-extrabold tracking-tight text-slate-800">Price Tracker</span>
-          </div>
-          <nav className="flex gap-6 text-sm font-bold">
-            <button className="text-indigo-600 border-b-2 border-indigo-600 pb-1">tracker</button>
-            <button className="text-slate-500 hover:text-indigo-600 pb-1 transition-colors">search</button>
-          </nav>
-        </div>
-      </header>
+  　　　　<div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+ 　　　　   <div className="flex items-center gap-2">
+     　　　　　 {/* タイトル部分もトップへ戻れるようにLinkにすると便利です */}
+     　　　　　 <Link href="/" className="flex items-center gap-2">
+      　　　　　　  <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">P</div>
+      　　　　　　  <span className="text-xl font-extrabold tracking-tight text-slate-800">Price Tracker</span>
+   　　　　　   </Link>
+ 　　　　   </div>
+　　　　    <nav className="flex gap-6 text-sm font-bold">
+　　　　　      <Link 
+     　　　　 　　  href="/" 
+    　　　　 　　   className="text-indigo-600 border-b-2 border-indigo-600 pb-1"
+  　　　　　    >
+   　　　　　　     tracker
+    　　　　　  </Link>
+  　　　　　    <Link 
+    　　　　　　    href="/search" 
+    　　　　　　    className="text-slate-500 hover:text-indigo-600 pb-1 transition-colors"
+               >
+        search
+      </Link>
+    </nav>
+  </div>
+</header>
 
       <main className="flex-grow max-w-5xl mx-auto w-full px-6 py-12">
         {/* メイン入力セクション */}
