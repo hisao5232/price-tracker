@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, SQLModel
-from sqlalchemy import text
+from sqlalchemy import text, delete
 from datetime import datetime
 from typing import List
 import re
@@ -150,6 +150,10 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
                 if DISCORD_WEBHOOK_URL:
                     async with httpx.AsyncClient() as client:
                         await client.post(DISCORD_WEBHOOK_URL, json={"content": content})
+                # --- ここを修正：制約エラー回避のため履歴を先に消す ---
+                await db.execute(
+                    delete(PriceHistory).where(PriceHistory.product_id == p.id)
+                )
                 
                 # DBから削除
                 await db.delete(p)
