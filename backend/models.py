@@ -11,9 +11,12 @@ class Product(SQLModel, table=True):
     image_url: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
 
-class PriceHistory(SQLModel, table=True):
+class PriceHistory(Base):
     __tablename__ = "price_histories"
-    id: Optional[int] = Field(default=None, primary_key=True)
-    product_id: int = Field(foreign_key="products.id")
-    price: int
-    scraped_at: datetime = Field(default_factory=datetime.now)
+    
+    id = Column(Integer, primary_key=True, index=True)
+    # ↓ ondelete="CASCADE" を追加
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"))
+    price = Column(Integer)
+    scraped_at = Column(DateTime, default=datetime.now)
+    
