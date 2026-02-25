@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface Product {
@@ -21,6 +22,7 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
+  const pathname = usePathname();
 
   // グラフモーダル用の状態
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -64,7 +66,6 @@ export default function Home() {
     }
   };
 
-  // 履歴取得とモーダル表示
   const openHistory = async (product: Product) => {
     setSelectedProduct(product);
     try {
@@ -84,35 +85,33 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans">
-      {/* ヘッダー */}
+      {/* ヘッダー：全角スペースを排除し構造を整理 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-  　　　　<div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
- 　　　　   <div className="flex items-center gap-2">
-     　　　　　 {/* タイトル部分もトップへ戻れるようにLinkにすると便利です */}
-     　　　　　 <Link href="/" className="flex items-center gap-2">
-      　　　　　　  <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">P</div>
-      　　　　　　  <span className="text-xl font-extrabold tracking-tight text-slate-800">Price Tracker</span>
-   　　　　　   </Link>
- 　　　　   </div>
-　　　　    <nav className="flex gap-6 text-sm font-bold">
-　　　　　      <Link 
-     　　　　 　　  href="/" 
-    　　　　 　　   className="text-indigo-600 border-b-2 border-indigo-600 pb-1"
-  　　　　　    >
-   　　　　　　     tracker
-    　　　　　  </Link>
-  　　　　　    <Link 
-    　　　　　　    href="/search" 
-    　　　　　　    className="text-slate-500 hover:text-indigo-600 pb-1 transition-colors"
-               >
-        search
-      </Link>
-    </nav>
-  </div>
-</header>
+        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Link href="/" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold group-hover:bg-indigo-700 transition-colors">P</div>
+              <span className="text-xl font-extrabold tracking-tight text-slate-800">Price Tracker</span>
+            </Link>
+          </div>
+          <nav className="flex gap-6 text-sm font-bold">
+            <Link 
+              href="/" 
+              className={`${pathname === '/' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-600'} pb-1 transition-colors`}
+            >
+              tracker
+            </Link>
+            <Link 
+              href="/search" 
+              className={`${pathname === '/search' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-600'} pb-1 transition-colors`}
+            >
+              search
+            </Link>
+          </nav>
+        </div>
+      </header>
 
       <main className="flex-grow max-w-5xl mx-auto w-full px-6 py-12">
-        {/* メイン入力セクション */}
         <section className="text-center mb-16">
           <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tight">スマートに価格を追跡。</h2>
           <p className="text-slate-500 mb-10 max-w-lg mx-auto">メルカリのURLを貼り付けるだけで、価格の変動を自動で記録します。</p>
@@ -138,7 +137,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* リストセクション */}
         <section className="space-y-6">
           <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
             追跡中のアイテム
@@ -165,7 +163,7 @@ export default function Home() {
                     </button>
                     <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
                       <span>ID: {product.item_id}</span>
-                      <a href={product.url} target="_blank" className="hover:text-indigo-600 flex items-center gap-1">ORIGINAL LINK</a>
+                      <a href={product.url} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 flex items-center gap-1">ORIGINAL LINK</a>
                     </div>
                   </div>
                 </div>
@@ -175,7 +173,6 @@ export default function Home() {
         </section>
       </main>
 
-      {/* グラフモーダル */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200">
@@ -191,24 +188,19 @@ export default function Home() {
                   <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `¥${v.toLocaleString()}`} />
                   <Tooltip 
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                    // (val: number | undefined) とすることで、undefinedの可能性を許容します
-                    formatter={(val: number | string | undefined) => {
-                      if (val === undefined || val === null) return ["---", "価格"];
-                      return [`¥${Number(val).toLocaleString()}`, "価格"];
-                    }}
+                    formatter={(val: any) => [`¥${Number(val).toLocaleString()}`, "価格"]}
                   />
                   <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4, fill: '#4f46e5' }} activeDot={{ r: 6 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="p-6 bg-slate-50 text-center">
+            <div className="p-6 bg-slate-50 text-center rounded-b-3xl">
               <p className="text-xs text-slate-500 font-medium">取得データ数: {history.length} 件</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* フッター */}
       <footer className="bg-white border-t border-slate-200 py-10 mt-12">
         <div className="max-w-5xl mx-auto px-6 text-center">
           <p className="text-slate-400 text-sm font-medium mb-2">Go-into-PG-world since 2025</p>
@@ -220,3 +212,4 @@ export default function Home() {
     </div>
   );
 }
+
