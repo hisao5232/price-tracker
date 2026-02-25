@@ -135,44 +135,55 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
     deleted_count = 0
     
     for p in products:
-        # 1. 最新の状態をスクレイピング
-        result = await scrape_site(p.url)
-        
-        # 2. 商品が削除されている、または売り切れの場合の処理
-        # スクレイパー側で status: "sold_out" やエラーを返す想定
-        if result["status"] == "error" or result.get("sold_out") is True:
-            # Discordに完売/削除通知を飛ばす
-            content = f"🚫 **追跡終了（完売または削除）**\n商品: {p.name}\nURL: {p.url}"
-            if DISCORD_WEBHOOK_URL:
-                async with httpx.AsyncClient() as client:
-                    await client.post(DISCORD_WEBHOOK_URL, json={"content": content})
+        try:
+            # 1. スクレイピング実行
+            result = await scrape_site(p.url)
             
-            # データベースから削除
-            await db.delete(p)
-            deleted_count += 1
-            continue
+            if result["status"] == "error":
+                print(f"一時的なエラーのためスキップ: {p.name}")
+                continue
 
-        # 3. 通常の価格チェック（既存のロジック）
-        new_price = result["price"]
-        history_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(text("scraped_at DESC")).limit(1)
-        h_result = await db.execute(history_stmt)
-        latest_history = h_result.scalar_one_or_none()
-        old_price = latest_history.price if latest_history else None
+            # 2. 売り切れ時の削除処理
+            if result.get("sold_out") is True:
+                # 通知
+                content = f"🚫 **追跡終了（完売）**\n商品: {p.name}\nURL: {p.url}"
+                if DISCORD_WEBHOOK_URL:
+                    async with httpx.AsyncClient() as client:
+                        await client.post(DISCORD_WEBHOOK_URL, json={"content": content})
+                
+                # DBから削除
+                await db.delete(p)
+                await db.commit()  # 1件ごとに確定させる
+                deleted_count += 1
+                continue
+
+            # 3. 価格更新処理
+            new_price = result["price"]
+            history_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(text("scraped_at DESC")).limit(1)
+            h_result = await db.execute(history_stmt)
+            latest_history = h_result.scalar_one_or_none()
+            
+            old_price = latest_history.price if latest_history else None
+            
+            if old_price is None or new_price != old_price:
+                new_history = PriceHistory(
+                    product_id=p.id,
+                    price=new_price,
+                    scraped_at=datetime.now()
+                )
+                db.add(new_history)
+                
+                if old_price and new_price < old_price:
+                    await send_discord_notification(p.name, old_price, new_price, p.url)
+                
+                await db.commit()  # 更新も1件ごとに確定
+                updated_count += 1
         
-        if old_price is None or new_price != old_price:
-            new_history = PriceHistory(
-                product_id=p.id,
-                price=new_price,
-                scraped_at=datetime.now()
-            )
-            db.add(new_history)
+        except Exception as e:
+            print(f"商品 {p.name} の処理中にエラーが発生: {e}")
+            await db.rollback()  # エラー時はロールバックして次へ
+            continue
             
-            if old_price and new_price < old_price:
-                await send_discord_notification(p.name, old_price, new_price, p.url)
-            
-            updated_count += 1
-            
-    await db.commit()
     return {
         "message": f"{updated_count}件を更新、{deleted_count}件を削除しました"
     }
