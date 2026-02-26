@@ -212,3 +212,24 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
         "message": f"全{checked_count}件をチェック：{updated_count}件の価格変更を確認、{deleted_count}件を削除しました"
     }
 
+@app.delete("/products/{product_id}")
+async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
+    # 商品の存在確認
+    statement = select(Product).where(Product.id == product_id)
+    result = await db.execute(statement)
+    product = result.scalar_one_or_none()
+    
+    if not product:
+        raise HTTPException(status_code=404, detail="商品が見つかりません")
+
+    # 関連する履歴を先に削除
+    await db.execute(
+        delete(PriceHistory).where(PriceHistory.product_id == product_id)
+    )
+    
+    # 商品本体を削除
+    await db.delete(product)
+    await db.commit()
+    
+    return {"message": f"商品 ID:{product_id} を削除しました"}
+
