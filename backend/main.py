@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, SQLModel
-from sqlalchemy import text, delete
+from sqlalchemy import text, delete, select
 from datetime import datetime
 from typing import List
 import re
@@ -249,27 +249,28 @@ async def search(keyword: str):
 
 @app.post("/track-keyword")
 async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
+    """
+    検索条件を 'search://' プロトコル形式でDBに保存する
+    """
     if not keyword:
-        return {"error": "キーワードが空です"}
+        return {"error": "Keyword is empty"}
     
-    # 検索カードとして識別するための特殊なURL形式を作成
-    search_url = f"search://{keyword}"
+    special_url = f"search://{keyword}"
     
-    # すでに同じキーワードが登録されていないか確認
-    statement = select(Product).where(Product.url == search_url)
-    result = await db.execute(statement)
-    if result.scalar_one_or_none():
-        return {"message": "このキーワードは既に登録されています"}
+    # 重複チェック
+    stmt = select(Product).where(Product.url == special_url)
+    existing = await db.execute(stmt)
+    if existing.scalar_one_or_none():
+        return {"message": "Already tracking this keyword"}
 
-    # ダミー画像（虫眼鏡アイコンなど）と一緒に保存
-    new_product = Product(
-        name=f"検索: {keyword}",
-        url=search_url,
-        image_url="https://cdn-icons-png.flaticon.com/512/622/622669.png", # 虫眼鏡のアイコン
-        item_id=f"search_{int(datetime.now().timestamp())}"
+    # 検索カードとして保存
+    new_entry = Product(
+        name=keyword,
+        url=special_url,
+        image_url="https://cdn-icons-png.flaticon.com/512/622/622669.png", # 虫眼鏡アイコン
+        item_id=f"kw-{int(datetime.now().timestamp())}"
     )
     
-    db.add(new_product)
+    db.add(new_entry)
     await db.commit()
-    return {"message": f"キーワード「{keyword}」を保存しました"}
-    
+    return {"status": "success", "keyword": keyword}
