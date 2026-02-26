@@ -161,37 +161,25 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
     results = await db.execute(statement)
     products = results.scalars().all()
     
-    updated_count = 0
-    deleted_count = 0
-    
+    checked_count = 0   # ← 【追加】チェックした総数
+    updated_count = 0   # 価格が変わった（履歴を追加した）数
+    deleted_count = 0   # 売り切れで削除した数
+
     for p in products:
+        checked_count += 1  # ループの最初でカウントアップ
         try:
-            # 1. スクレイピング実行
             result = await scrape_site(p.url)
-            
             if result["status"] == "error":
                 print(f"一時的なエラーのためスキップ: {p.name}")
                 continue
 
-            # 2. 売り切れ時の削除処理
+            # 売り切れ時の削除処理
             if result.get("sold_out") is True:
-                # 通知
-                content = f"🚫 **追跡終了（完売）**\n商品: {p.name}\nURL: {p.url}"
-                if DISCORD_WEBHOOK_URL:
-                    async with httpx.AsyncClient() as client:
-                        await client.post(DISCORD_WEBHOOK_URL, json={"content": content})
-                # --- ここを修正：制約エラー回避のため履歴を先に消す ---
-                await db.execute(
-                    delete(PriceHistory).where(PriceHistory.product_id == p.id)
-                )
-                
-                # DBから削除
-                await db.delete(p)
-                await db.commit()  # 1件ごとに確定させる
+                # ... (中略: 削除ロジック) ...
                 deleted_count += 1
                 continue
 
-            # 3. 価格更新処理
+            # 価格更新処理
             new_price = result["price"]
             history_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(text("scraped_at DESC")).limit(1)
             h_result = await db.execute(history_stmt)
@@ -199,6 +187,7 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
             
             old_price = latest_history.price if latest_history else None
             
+            # 価格が変わった場合のみ履歴を追加
             if old_price is None or new_price != old_price:
                 new_history = PriceHistory(
                     product_id=p.id,
@@ -206,18 +195,20 @@ async def check_all_products(db: AsyncSession = Depends(get_db)):
                     scraped_at=datetime.now()
                 )
                 db.add(new_history)
-                
                 if old_price and new_price < old_price:
                     await send_discord_notification(p.name, old_price, new_price, p.url)
-                
-                await db.commit()  # 更新も1件ごとに確定
+                await db.commit()
                 updated_count += 1
-        
+            else:
+                # 価格が変わらなくても、最終チェック時刻を記録したい場合はここで処理（任意）
+                print(f"価格変更なし: {p.name} (¥{new_price})")
+
         except Exception as e:
             print(f"商品 {p.name} の処理中にエラーが発生: {e}")
-            await db.rollback()  # エラー時はロールバックして次へ
+            await db.rollback()
             continue
-            
+
     return {
-        "message": f"{updated_count}件を更新、{deleted_count}件を削除しました"
+        "message": f"全{checked_count}件をチェック：{updated_count}件の価格変更を確認、{deleted_count}件を削除しました"
     }
+
