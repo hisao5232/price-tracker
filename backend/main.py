@@ -33,16 +33,38 @@ async def on_startup():
 
 @app.post("/track")
 async def track_product(url: str, db: AsyncSession = Depends(get_db)):
-    match = re.search(r'(m\d{11})', url)
-    if not match:
-        raise HTTPException(status_code=400, detail="有効なURLが見つかりませんでした")
-    
-    item_id = match.group(1)
-    clean_url = f"https://jp.mercari.com/item/{item_id}"
+    # デバッグログを追加（これがあればコンテナのログで何が起きているか100%分かります）
+    print(f"DEBUG: Received URL: {url}")
 
+    # 1. メルカリ通常商品 (item/m123...)
+    # URLの中に 'item/m...' が含まれているかをより柔軟に探す
+    item_match = re.search(r'item/(m\d+)', url)
+    
+    # 2. メルカリShops (shops/product/英数字)
+    # ShopsのIDは英数字が混ざるため、[a-zA-Z0-9]+ で取得
+    shop_match = re.search(r'shops/product/([a-zA-Z0-9]+)', url)
+
+    if item_match:
+        item_id = item_match.group(1)
+        clean_url = f"https://jp.mercari.com/item/{item_id}"
+        print(f"DEBUG: Matched Standard Item ID: {item_id}")
+    elif shop_match:
+        item_id = shop_match.group(1)
+        clean_url = f"https://jp.mercari.com/shops/product/{item_id}"
+        print(f"DEBUG: Matched Shops Product ID: {item_id}")
+    else:
+        # マッチしなかった理由を詳細に返してフロントで確認できるようにする
+        print(f"DEBUG: URL Match Failed. Input was: {url}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"URL形式が正しくありません。'item/m...' または 'shops/product/...' を含むURLを入力してください。受け取った値: {url}"
+        )
+
+    # スクレイピング実行
     result = await scrape_site(clean_url)
+    # --- 修正2: スクレイピングがエラーの場合、その理由を返す ---
     if result["status"] == "error":
-        raise HTTPException(status_code=400, detail=result["message"])
+        raise HTTPException(status_code=400, detail=f"解析失敗: {result.get('message')}")
 
     statement = select(Product).where(Product.item_id == item_id)
     db_result = await db.execute(statement)
@@ -81,6 +103,7 @@ async def get_products(db: AsyncSession = Depends(get_db)):
     
     response_data = []
     for p in products_db:
+        # 価格履歴の取得
         history_stmt = (
             select(PriceHistory)
             .where(PriceHistory.product_id == p.id)
@@ -90,8 +113,15 @@ async def get_products(db: AsyncSession = Depends(get_db)):
         h_result = await db.execute(history_stmt)
         latest_history = h_result.scalar_one_or_none()
         
-        product_data = p.model_dump()
-        product_data["current_price"] = latest_history.price if latest_history else None
+        # --- ここを修正：手動で辞書を作る ---
+        product_data = {
+            "id": p.id,
+            "item_id": p.item_id,
+            "name": p.name,
+            "url": p.url,
+            "image_url": p.image_url,
+            "current_price": latest_history.price if latest_history else None
+        }
         response_data.append(product_data)
             
     return response_data
