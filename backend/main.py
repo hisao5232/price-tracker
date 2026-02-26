@@ -11,7 +11,7 @@ import os
 
 from database import get_db, engine
 from models import Product, PriceHistory
-from scraper import scrape_site
+from scraper import scrape_site, search_items
 
 # .envから取得
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
@@ -233,3 +233,43 @@ async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
     
     return {"message": f"商品 ID:{product_id} を削除しました"}
 
+@app.get("/search")
+async def search(keyword: str):
+    """
+    キーワードを受け取り、Playwrightを使って商品を検索して返す
+    """
+    if not keyword:
+        return []
+    
+    # scraper.py の search_items を実行
+    results = await search_items(keyword)
+    
+    # フロントエンドが期待する SearchResult 形式で返却
+    return results
+
+@app.post("/track-keyword")
+async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
+    if not keyword:
+        return {"error": "キーワードが空です"}
+    
+    # 検索カードとして識別するための特殊なURL形式を作成
+    search_url = f"search://{keyword}"
+    
+    # すでに同じキーワードが登録されていないか確認
+    statement = select(Product).where(Product.url == search_url)
+    result = await db.execute(statement)
+    if result.scalar_one_or_none():
+        return {"message": "このキーワードは既に登録されています"}
+
+    # ダミー画像（虫眼鏡アイコンなど）と一緒に保存
+    new_product = Product(
+        name=f"検索: {keyword}",
+        url=search_url,
+        image_url="https://cdn-icons-png.flaticon.com/512/622/622669.png", # 虫眼鏡のアイコン
+        item_id=f"search_{int(datetime.now().timestamp())}"
+    )
+    
+    db.add(new_product)
+    await db.commit()
+    return {"message": f"キーワード「{keyword}」を保存しました"}
+    

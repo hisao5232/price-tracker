@@ -141,7 +141,7 @@ async def search_items(keyword: str):
     # キーワードをURLエンコードして結合
     encoded_keyword = urllib.parse.quote(keyword)
     # 検索条件をパラメータとして構築
-    search_url = f"{BASE_SEARCH_URL}?keyword={encoded_keyword}&status=on_sale&sort=created_time&order=desc"
+    search_url = f"{BASE_SEARCH_URL}/search/?keyword={encoded_keyword}&status=on_sale&sort=created_time&order=desc"
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
