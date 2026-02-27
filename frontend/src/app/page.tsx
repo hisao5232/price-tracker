@@ -37,7 +37,12 @@ export default function Home() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products`);
       if (res.ok) {
         const data = await res.json();
-        setProducts(data);
+        
+        // urlが "http" で始まるもの（通常の商品）だけを抽出
+        // これにより "search://" で始まるキーワードカードが除外されます
+        const filteredData = data.filter((item: any) => item.url.startsWith("http"));
+        
+        setProducts(filteredData);
       }
     } catch (err) {
       console.error("Fetch error:", err);
