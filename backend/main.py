@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, SQLModel
-from sqlalchemy import text, delete, select
+from sqlalchemy import text, delete, select, and_
 from datetime import datetime
 from typing import List
 import re
@@ -312,3 +312,51 @@ async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
         "items_count": len(scraped_items)
     }
 
+# --- 追加: 保存済み商品の中からキーワードでDB検索する ---
+@app.get("/products/search-results")
+async def get_search_results(keyword: str, db: AsyncSession = Depends(get_db)):
+    """
+    スクレイピングはせず、DB内の商品名からキーワード一致するものを返す
+    """
+    if not keyword:
+        return []
+
+    # 1. 商品名にキーワードが含まれるものを検索
+    # 2. 'search://' (親カード) は除外する
+    statement = (
+        select(Product)
+        .where(
+            and_(
+                Product.name.icontains(keyword),
+                ~Product.url.startswith("search://")
+            )
+        )
+        .order_by(text("created_at DESC"))
+    )
+    
+    results = await db.execute(statement)
+    products_db = results.scalars().all()
+    
+    response_data = []
+    for p in products_db:
+        # 最新価格を取得
+        history_stmt = (
+            select(PriceHistory)
+            .where(PriceHistory.product_id == p.id)
+            .order_by(text("scraped_at DESC"))
+            .limit(1)
+        )
+        h_result = await db.execute(history_stmt)
+        latest_history = h_result.scalar_one_or_none()
+        
+        response_data.append({
+            "id": p.id,
+            "name": p.name,
+            "url": p.url,
+            "image_url": p.image_url,
+            "price": latest_history.price if latest_history else 0,
+            "created_at": p.created_at
+        })
+            
+    return response_data
+    
