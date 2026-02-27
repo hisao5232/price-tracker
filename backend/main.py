@@ -249,28 +249,66 @@ async def search(keyword: str):
 
 @app.post("/track-keyword")
 async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
-    """
-    検索条件を 'search://' プロトコル形式でDBに保存する
-    """
     if not keyword:
         return {"error": "Keyword is empty"}
     
     special_url = f"search://{keyword}"
     
-    # 重複チェック
+    # 1. 親となる「検索条件カード」の登録/確認
     stmt = select(Product).where(Product.url == special_url)
-    existing = await db.execute(stmt)
-    if existing.scalar_one_or_none():
-        return {"message": "Already tracking this keyword"}
-
-    # 検索カードとして保存
-    new_entry = Product(
-        name=keyword,
-        url=special_url,
-        image_url="https://cdn-icons-png.flaticon.com/512/622/622669.png", # 虫眼鏡アイコン
-        item_id=f"kw-{int(datetime.now().timestamp())}"
-    )
+    result = await db.execute(stmt)
+    parent_card = result.scalar_one_or_none()
     
-    db.add(new_entry)
+    if not parent_card:
+        parent_card = Product(
+            name=keyword,
+            url=special_url,
+            image_url="https://cdn-icons-png.flaticon.com/512/622/622669.png",
+            item_id=f"kw-{int(datetime.now().timestamp())}"
+        )
+        db.add(parent_card)
+        # 後で商品と紐付けたい場合はここで flush() してIDを確定させますが、
+        # 今回はシンプルに「全商品保存」を優先します。
+
+    # 2. スクレイピング実行（Playwright起動）
+    print(f"Starting background scrape for: {keyword}")
+    scraped_items = await search_items(keyword)
+    
+    # 3. 取得した全アイテムをDBに保存（一括処理）
+    for item in scraped_items:
+        # すでにDBにあるか確認（URLを一意のキーとする）
+        item_stmt = select(Product).where(Product.url == item["url"])
+        item_result = await db.execute(item_stmt)
+        existing_item = item_result.scalar_one_or_none()
+        
+        if existing_item:
+            # すでに存在すれば価格履歴だけ追加
+            new_history = PriceHistory(
+                product_id=existing_item.id,
+                price=item["price"]
+            )
+            db.add(new_history)
+        else:
+            # 新規商品ならProductとPriceHistoryを両方作成
+            new_product = Product(
+                name=item["name"],
+                url=item["url"],
+                image_url=item["image_url"],
+                item_id=item["id"]
+            )
+            db.add(new_product)
+            await db.flush() # IDを確定させる
+            
+            new_history = PriceHistory(
+                product_id=new_product.id,
+                price=item["price"]
+            )
+            db.add(new_history)
+
     await db.commit()
-    return {"status": "success", "keyword": keyword}
+    return {
+        "status": "success", 
+        "keyword": keyword, 
+        "items_count": len(scraped_items)
+    }
+
