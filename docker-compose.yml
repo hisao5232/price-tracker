@@ -23,7 +23,7 @@ services:
       - "traefik.http.routers.tracker-api.tls.certresolver=lets-encrypt"
       - "traefik.http.services.tracker-api.loadbalancer.server.port=8000"
       - "traefik.docker.network=traefik-public"
-
+  
   tracker-db:
     image: postgres:16-alpine
     container_name: tracker-db
@@ -43,19 +43,19 @@ services:
       timeout: 5s
       retries: 5
 
-  frontend:
-    build: ./frontend
-    container_name: tracker-frontend
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-      - NEXT_PUBLIC_API_KEY=${NEXT_PUBLIC_API_KEY}
-    depends_on:
-      - tracker-backend
+  # frontend:
+  #   build: ./frontend
+  #   container_name: tracker-frontend
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+  #     - NEXT_PUBLIC_API_KEY=${NEXT_PUBLIC_API_KEY}
+  #   depends_on:
+  #     - tracker-backend
 
 networks:
   traefik-public:

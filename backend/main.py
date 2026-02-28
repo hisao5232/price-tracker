@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, SQLModel
 from sqlalchemy import text, delete, select, and_
+from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List
 import re
@@ -291,11 +292,14 @@ async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
         else:
             # 新規商品ならProductとPriceHistoryを両方作成
             new_product = Product(
+                item_id=item["id"],
                 name=item["name"],
                 url=item["url"],
                 image_url=item["image_url"],
-                item_id=item["id"]
+                searched_keyword=keyword, # 検索に使ったキーワードをそのまま保存！
+                created_at=datetime.now()
             )
+
             db.add(new_product)
             await db.flush() # IDを確定させる
             
@@ -312,22 +316,22 @@ async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
         "items_count": len(scraped_items)
     }
 
-# --- 追加: 保存済み商品の中からキーワードでDB検索する ---
+# --- 追加: 保存済み商品の中から検索キーワード(searched_keyword)でDB検索する ---
 @app.get("/products/search-results")
 async def get_search_results(keyword: str, db: AsyncSession = Depends(get_db)):
     """
-    スクレイピングはせず、DB内の商品名からキーワード一致するものを返す
+    保存時に紐付けた検索キーワード(searched_keyword)に完全一致する商品を返す
     """
     if not keyword:
         return []
 
-    # 1. 商品名にキーワードが含まれるものを検索
-    # 2. 'search://' (親カード) は除外する
+    # 1. searched_keyword カラムで検索
+    # これにより、メルカリ等で検索してヒットした116件をそのまま再現できます
     statement = (
         select(Product)
         .where(
             and_(
-                Product.name.icontains(keyword),
+                Product.searched_keyword == keyword,  # 完全一致で紐付け
                 ~Product.url.startswith("search://")
             )
         )

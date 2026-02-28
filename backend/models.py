@@ -14,6 +14,7 @@ class Product(Base):
     name = Column(String)
     url = Column(String)
     image_url = Column(String)
+    searched_keyword = Column(String, index=True)
     created_at = Column(DateTime, default=datetime.now)
 
 class PriceHistory(Base):

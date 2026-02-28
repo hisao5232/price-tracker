@@ -161,9 +161,8 @@ async def search_items(keyword: str):
             # --- 全件回収ループ ---
             for step in range(30):
                 # JavaScript側で「要素が安定するまで少し待つ」処理を内蔵
-                new_data = await page.evaluate('''async () => {
+                new_data = await page.evaluate('''async (searchKeyword) => {
                     const results = [];
-                    // 読み込み待ち（少し待機）
                     await new Promise(r => setTimeout(r, 500));
                     
                     const cells = document.querySelectorAll('li[data-testid="item-cell"]');
@@ -173,19 +172,20 @@ async def search_items(keyword: str):
                         const priceEl = cell.querySelector('span[class*="number"]');
                         const imgEl = cell.querySelector('picture img');
                         
-                        // 名前と価格がちゃんとテキストとして入っている場合のみ取得
                         if (link && nameEl && nameEl.innerText.trim() !== "" && priceEl) {
                             results.push({
                                 id: link.getAttribute('href').split('/').pop(),
                                 name: nameEl.innerText,
                                 price: parseInt(priceEl.innerText.replace(/[,¥]/g, '')),
                                 url: "https://jp.mercari.com" + link.getAttribute('href'),
-                                image_url: imgEl ? imgEl.getAttribute('src') : null
+                                image_url: imgEl ? imgEl.getAttribute('src') : null,
+                                // ここを追加：検索に使ったキーワードを各アイテムに紐付ける
+                                searched_keyword: searchKeyword 
                             });
                         }
                     });
                     return results;
-                }''')
+                }''', keyword) # ここで第2引数としてkeywordを渡す
 
                 for item in new_data:
                     found_items[item['id']] = item
