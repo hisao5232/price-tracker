@@ -15,6 +15,7 @@ class Product(Base):
     url = Column(String)
     image_url = Column(String)
     searched_keyword = Column(String, index=True)
+    is_tracking = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 
 class PriceHistory(Base):

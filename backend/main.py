@@ -77,6 +77,7 @@ async def track_product(url: str, db: AsyncSession = Depends(get_db)):
             name=result["name"],
             url=clean_url,
             image_url=result["image_url"],
+            is_tracking=True,
             created_at=datetime.now()
         )
         db.add(product)
@@ -98,7 +99,11 @@ async def track_product(url: str, db: AsyncSession = Depends(get_db)):
 
 @app.get("/products")
 async def get_products(db: AsyncSession = Depends(get_db)):
-    statement = select(Product).order_by(text("created_at DESC"))
+    statement = (
+        select(Product)
+        .where(Product.is_tracking == True) # 追跡中のみに絞り込む
+        .order_by(text("created_at DESC"))
+    )
     results = await db.execute(statement)
     products_db = results.scalars().all()
     
@@ -158,7 +163,12 @@ async def send_discord_notification(product_name, old_price, new_price, url):
 
 @app.post("/products/check-all")
 async def check_all_products(db: AsyncSession = Depends(get_db)):
-    statement = select(Product)
+    statement = select(Product).where(
+        and_(
+            Product.is_tracking == True,
+            ~Product.url.startswith("search://")
+        )
+    )
     results = await db.execute(statement)
     products = results.scalars().all()
     
@@ -265,7 +275,9 @@ async def track_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
             name=keyword,
             url=special_url,
             image_url="https://cdn-icons-png.flaticon.com/512/622/622669.png",
-            item_id=f"kw-{int(datetime.now().timestamp())}"
+            item_id=f"kw-{int(datetime.now().timestamp())}",
+            is_tracking=True,  # 【追加】これがないとキーワードリストに表示されなくなります
+            searched_keyword=keyword # 【追加】削除時に自分自身も消せるように
         )
         db.add(parent_card)
         # 後で商品と紐付けたい場合はここで flush() してIDを確定させますが、
@@ -367,9 +379,11 @@ async def get_search_results(keyword: str, db: AsyncSession = Depends(get_db)):
 # --- 削除用（デコレータを追加！） ---
 @app.delete("/products/search-results")    
 async def delete_search_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
-    # そのキーワードに関連する商品をすべて削除
-    # (CASCADE設定があればPriceHistoryも自動で消えます)
-    statement = delete(Product).where(Product.searched_keyword == keyword)
+    # 1. そのキーワードで保存された商品 ＋ 親カード(url="search://...") の両方を削除
+    # 親カードにも searched_keyword を入れておけば、以下の1行ですべて消せます
+    statement = delete(Product).where(
+        (Product.searched_keyword == keyword) | (Product.url == f"search://{keyword}")
+    )
     await db.execute(statement)
     await db.commit()
     return {"message": f"Keyword '{keyword}' and related items deleted."}

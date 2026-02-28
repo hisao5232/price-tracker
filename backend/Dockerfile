@@ -1,20 +1,21 @@
 FROM python:3.11-slim
 
-# システムの依存関係（Playwrightの実行に必要）をインストール
+# システムの依存関係（ncが必要）
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Playwright ブラウザとシステム依存ライブラリのインストール
 RUN playwright install --with-deps chromium
 
 COPY . .
 
-# 8000ポートで起動
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 実行権限を付与
+RUN chmod +x entrypoint.sh
+
+# entrypointを指定
+ENTRYPOINT ["./entrypoint.sh"]
