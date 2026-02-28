@@ -363,4 +363,13 @@ async def get_search_results(keyword: str, db: AsyncSession = Depends(get_db)):
         })
             
     return response_data
-    
+
+# --- 削除用（デコレータを追加！） ---
+@app.delete("/products/search-results")    
+async def delete_search_keyword(keyword: str, db: AsyncSession = Depends(get_db)):
+    # そのキーワードに関連する商品をすべて削除
+    # (CASCADE設定があればPriceHistoryも自動で消えます)
+    statement = delete(Product).where(Product.searched_keyword == keyword)
+    await db.execute(statement)
+    await db.commit()
+    return {"message": f"Keyword '{keyword}' and related items deleted."}
