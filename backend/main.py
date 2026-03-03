@@ -11,7 +11,7 @@ import httpx
 import os
 
 from database import get_db, engine
-from models import Product, PriceHistory
+from models import Product, PriceHistory, Base
 from scraper import scrape_site, search_items
 
 # .envから取得
@@ -30,7 +30,9 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+        # SQLModel.metadata ではなく、models.py で使っている Base.metadata を使う
+        await conn.run_sync(Base.metadata.create_all)
+    print("Database tables created successfully using Base metadata.")
 
 @app.post("/track")
 async def track_product(url: str, db: AsyncSession = Depends(get_db)):

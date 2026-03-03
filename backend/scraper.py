@@ -138,102 +138,119 @@ async def scrape_site(url: str):
             await browser.close()
 
 async def search_items(keyword: str):
-    # キーワードをURLエンコードして結合
     encoded_keyword = urllib.parse.quote(keyword)
-    # 検索条件をパラメータとして構築
     search_url = f"{BASE_SEARCH_URL}/search/?keyword={encoded_keyword}&status=on_sale&sort=created_time&order=desc"
     
     async with async_playwright() as p:
+        print(f"--- Starting Scraping for: {keyword} ---")
+        # エックスサーバー等の環境に合わせ、余計なリソースを読み込まない設定
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
+        
         found_items = {}
         last_count = 0
-        same_count_limit = 0 
+        same_count_limit = 0
 
         try:
-            print(f"Accessing: {search_url}")
-            await page.goto(search_url, wait_until="domcontentloaded")
-            await page.wait_for_selector('li[data-testid="item-cell"]', timeout=15000)
+            print(f"[DEBUG] Navigating to: {search_url}")
+
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
             
+            # アイテムが表示されるまで待機
+            try:
+                await page.wait_for_selector('li[data-testid="item-cell"]', timeout=20000)
+            except Exception as te:
+                print(f"[ERROR] Timeout waiting for selector: {te}")
+                # タイムアウトしてもデータがJSONにある可能性があるので続行
+            
+            # デバッグ用：現在のHTMLをダンプ
+            html_content = await page.content()
+            with open("debug_page_source.html", "w", encoding="utf-8") as f:
+                f.write(html_content)
+            print(f"[DEBUG] HTML dumped to debug_page_source.html (Length: {len(html_content)})")
+
             # --- 全件回収ループ ---
-            for step in range(30):
-                # JavaScript側で「要素が安定するまで少し待つ」処理を内蔵
+            for step in range(5):  # JSON取得ならステップ数は少なめでもOK
+                print(f"[DEBUG] Step {step + 1}: Extracting data via Next.js JSON...")
+
+                # DOMを這い回るのではなく、内部JSONデータを直接パース
                 new_data = await page.evaluate('''async (searchKeyword) => {
-                    const results = [];
-                    await new Promise(r => setTimeout(r, 500));
-                    
-                    const cells = document.querySelectorAll('li[data-testid="item-cell"]');
-                    cells.forEach(cell => {
-                        const link = cell.querySelector('a');
-                        const nameEl = cell.querySelector('span[data-testid="thumbnail-item-name"]');
-                        const priceEl = cell.querySelector('span[class*="number"]');
-                        const imgEl = cell.querySelector('picture img');
-                        
-                        if (link && nameEl && nameEl.innerText.trim() !== "" && priceEl) {
-                            results.push({
-                                id: link.getAttribute('href').split('/').pop(),
-                                name: nameEl.innerText,
-                                price: parseInt(priceEl.innerText.replace(/[,¥]/g, '')),
-                                url: "https://jp.mercari.com" + link.getAttribute('href'),
-                                image_url: imgEl ? imgEl.getAttribute('src') : null,
-                                // ここを追加：検索に使ったキーワードを各アイテムに紐付ける
-                                searched_keyword: searchKeyword 
-                            });
-                        }
-                    });
-                    return results;
-                }''', keyword) # ここで第2引数としてkeywordを渡す
+                    try {
+                        const nextDataEl = document.getElementById('__NEXT_DATA__');
+                        if (!nextDataEl) return [];
+
+                        const jsonData = JSON.parse(nextDataEl.innerHTML);
+        
+        // メルカリの最新構造: props.pageProps.apolloState にデータが分散している場合があるため、
+        // initialState と apolloState 両方をチェックする
+                        const state = jsonData.props?.pageProps?.initialState || jsonData.props?.pageProps?.apolloState || {};
+        
+        // アイテム配列を保持している可能性が高いキーを網羅的に探す
+                        const items = 
+                            state.search?.searchItems?.items || 
+                            state.searchV2?.searchItems?.items ||
+                            (state.searchItems && state.searchItems.items) ||
+                            [];
+            
+        // もし上記で見つからない場合の再帰探索 (エンジニアの予備策)
+                        const findItemsRecursive = (obj) => {
+                            if (!obj || typeof obj !== 'object') return null;
+                            if (Array.isArray(obj) && obj.length > 0 && obj[0].id && obj[0].name) return obj;
+                            for (const key in obj) {
+                                if (key === 'items' && Array.isArray(obj[key])) return obj[key];
+                                const found = findItemsRecursive(obj[key]);
+                                if (found) return found;
+                            }
+                            return null;
+                        };
+
+                        const finalItems = items.length > 0 ? items : (findItemsRecursive(state) || []);
+
+                        return finalItems.map(item => ({
+                            id: item.id || item.itemId,
+                            name: item.name || "",
+                            price: parseInt(item.price) || 0,
+                            url: "https://jp.mercari.com/item/" + (item.id || item.itemId),
+                            image_url: (item.thumbnails && item.thumbnails.length > 0) ? item.thumbnails[0] : null,
+                            searched_keyword: searchKeyword 
+                        })).filter(item => item.id && item.price > 0); // 最低限のバリデーション
+                    } catch (err) {
+                        return [];
+                    }
+                }''', keyword)
 
                 for item in new_data:
                     found_items[item['id']] = item
-
+                
                 current_count = len(found_items)
-                print(f"Step {step + 1}: {current_count} items collected...")
+                print(f"[INFO] Step {step + 1}: Extracted {len(new_data)} items (Total Unique: {current_count})")
 
+                # 終了判定
                 if current_count == last_count:
                     same_count_limit += 1
                 else:
-                    same_count_limit = 0 
-                
-                if same_count_limit >= 3:
-                    print("Reached the bottom. Finalizing...")
+                    same_count_limit = 0
+
+                if same_count_limit >= 2:
                     break
                 
                 last_count = current_count
 
-                # 小刻みスクロールで読み込みを促す
-                for _ in range(3):
-                    await page.mouse.wheel(0, 800)
-                    await page.wait_for_timeout(800)
+                # さらに読み込ませるためにスクロール
+                await page.mouse.wheel(0, 2000)
+                await page.wait_for_timeout(2000)
 
-            print(f"Total unique items collected: {len(found_items)}")
+            print(f"--- Scraping Finished. Total Unique: {len(found_items)} ---")
             
-            # --- スクリーンショット対策：超丁寧な全戻り ---
-            print("Capturing full-page screenshot... Ensuring all images are loaded.")
-            # 一気に戻らず、各セクションで画像が読み込まれるのを待つ
-            current_y = await page.evaluate("window.scrollY")
-            while current_y > 0:
-                current_y = max(0, current_y - 1200)
-                await page.evaluate(f"window.scrollTo(0, {current_y})")
-                # そのエリアの画像がロードされるのを待機
-                await page.wait_for_timeout(600)
-
-            # 最上部でダメ押しの待機
-            await page.evaluate("window.scrollTo(0, 0)")
-            await page.wait_for_timeout(2000)
-            
-            screenshot_path = "search_result_debug.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
-            print(f"Final full-page screenshot saved.")
-
+            # 最終的な画面を保存
+            await page.screenshot(path="search_result_debug.png")
             return list(found_items.values())
 
         except Exception as e:
-            await page.screenshot(path="error_debug.png")
-            print(f"Search error: {e}")
+            print(f"[CRITICAL ERROR] Scraping failed: {str(e)}")
             return []
         finally:
             await browser.close()

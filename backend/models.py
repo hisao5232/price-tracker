@@ -1,10 +1,7 @@
-# backend/models.py
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
-# --- ここを追加：倉庫(database.py)からBaseを持ってくる ---
 from database import Base 
-# ---------------------------------------------------
 
 class Product(Base):
     __tablename__ = "products"
