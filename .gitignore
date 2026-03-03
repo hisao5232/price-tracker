@@ -25,3 +25,4 @@ build/
 .docker
 
 logs
+debug_view.html
